@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workspace Group Sync</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <h1>Workspace Group Sync</h1>
+        <p>Salve grupos nativos do Firefox e restaure em outro Firefox desktop logado na mesma conta Mozilla.</p>
+      </header>
+
+      <section class="notice" id="notice"></section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Grupos atuais</h2>
+          <button id="btnRefresh" class="secondary">Atualizar</button>
+        </div>
+        <div id="currentGroups" class="list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Workspaces salvos</h2>
+          <span class="hint">Sincronizados via <code>storage.sync</code></span>
+        </div>
+        <div id="savedWorkspaces" class="list"></div>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
