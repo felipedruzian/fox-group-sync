@@ -38,6 +38,31 @@
       </section>
     </main>
 
+    <section id="updateConfirmModal" class="modal-backdrop" aria-hidden="true">
+      <article class="modal-card" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+        <h3 id="updateConfirmTitle">Confirmar atualização do grupo sincronizado</h3>
+        <p id="updateConfirmMessage" class="modal-text"></p>
+        <div class="diff-grid">
+          <div class="diff-panel">
+            <h4>Abas adicionadas</h4>
+            <ul id="diffAddedList" class="diff-list added"></ul>
+          </div>
+          <div class="diff-panel">
+            <h4>Abas removidas</h4>
+            <ul id="diffRemovedList" class="diff-list removed"></ul>
+          </div>
+        </div>
+        <label class="modal-checkbox">
+          <input id="dontAskAgainCheckbox" type="checkbox" />
+          Nao perguntar novamente para este grupo (nome + cor)
+        </label>
+        <div class="modal-actions">
+          <button id="cancelUpdateBtn" class="secondary" type="button">Cancelar</button>
+          <button id="confirmUpdateBtn" type="button">Atualizar grupo</button>
+        </div>
+      </article>
+    </section>
+
     <script src="popup.js"></script>
   </body>
 </html>

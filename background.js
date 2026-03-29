@@ -2,6 +2,7 @@ const browserApi = globalThis.browser ?? globalThis.chrome;
 
 const LEGACY_STORAGE_KEY = "workspaceGroupSync.workspaces.v1";
 const WORKSPACE_KEY_PREFIX = "workspaceGroupSync.workspace.";
+const DEVICE_PROFILE_KEY = "workspaceGroupSync.deviceProfile.v1";
 const MAX_WORKSPACES = 100;
 const TAB_GROUP_NONE = -1;
 const SYNC_QUOTA_BYTES = 102400;
@@ -32,13 +33,18 @@ async function getState() {
     supported ? listCurrentWindowGroups() : Promise.resolve([]),
     getWorkspaceState(),
   ]);
+  const syncLogicalKeys = new Set(workspaceState.syncLogicalKeys || []);
+  const workspaces = sortWorkspaces(workspaceState.workspaces).map((workspace) => ({
+    ...workspace,
+    inSync: syncLogicalKeys.has(getWorkspaceLogicalKey(workspace.name, workspace.color)),
+  }));
 
   return {
     ok: true,
     supported,
     currentGroups,
     syncStatus: workspaceState.syncStatus,
-    workspaces: sortWorkspaces(workspaceState.workspaces),
+    workspaces,
   };
 }
 
@@ -74,11 +80,12 @@ async function listCurrentWindowGroups() {
         windowId: group.windowId,
         tabCount: tabsInGroup.length,
         firstTabIndex: tabsInGroup[0]?.index ?? 0,
-        preview: tabsInGroup.slice(0, 3).map((tab) => sanitizeText(tab.title || tab.url || "Nova aba")),
+        preview: tabsInGroup.slice(0, 3).map((tab) => getTabTitle(tab, getTabUrl(tab))),
         tabs: tabsInGroup.map((tab) => ({
-          url: tab.url || "about:blank",
-          title: sanitizeText(tab.title || tab.url || "Nova aba"),
-          restorable: isRestorableUrl(tab.url),
+          url: getTabUrl(tab),
+          title: getTabTitle(tab, getTabUrl(tab)),
+          favIconUrl: normalizeFavIconUrl(tab.favIconUrl),
+          restorable: isRestorableUrl(getTabUrl(tab)),
         })),
       });
     } catch {
@@ -100,9 +107,15 @@ async function saveGroup(groupId) {
     return { ok: false, error: "Grupo não encontrado na janela atual." };
   }
 
-  const tabUrls = group.tabs
+  const tabEntries = group.tabs
     .filter((tab) => Boolean(tab.url))
-    .map((tab) => tab.url);
+    .map((tab) => ({
+      url: tab.url,
+      title: sanitizeText(tab.title || tab.url || "Nova aba"),
+      favIconUrl: normalizeFavIconUrl(tab.favIconUrl),
+    }));
+  const tabUrls = tabEntries.map((tab) => tab.url);
+  const sourceDevice = await getCurrentSourceDevice();
 
   if (!tabUrls.length) {
     return { ok: false, error: "Não há abas para salvar neste grupo." };
@@ -121,9 +134,11 @@ async function saveGroup(groupId) {
         color: group.color || "grey",
         collapsed: Boolean(group.collapsed),
         updatedAt: now,
+        tabEntries,
         tabUrls,
         meta: {
           originalTabCount: tabUrls.length,
+          sourceDevice,
         },
       }
     : {
@@ -133,9 +148,11 @@ async function saveGroup(groupId) {
         collapsed: Boolean(group.collapsed),
         createdAt: now,
         updatedAt: now,
+        tabEntries,
         tabUrls,
         meta: {
           originalTabCount: tabUrls.length,
+          sourceDevice,
         },
       };
 
@@ -178,8 +195,12 @@ async function restoreWorkspace(workspaceId) {
   const createdTabIds = [];
   const skippedUrls = [];
 
-  for (let i = 0; i < workspace.tabUrls.length; i += 1) {
-    const url = workspace.tabUrls[i];
+  const tabEntries = Array.isArray(workspace.tabEntries) && workspace.tabEntries.length
+    ? workspace.tabEntries
+    : workspace.tabUrls.map((url) => ({ url, title: url }));
+
+  for (let i = 0; i < tabEntries.length; i += 1) {
+    const url = tabEntries[i].url;
     if (!isRestorableUrl(url)) {
       skippedUrls.push(url);
       continue;
@@ -279,6 +300,7 @@ async function getWorkspaceState() {
 
   return {
     workspaces: merged,
+    syncLogicalKeys: Array.from(new Set(syncState.workspaces.map((item) => getWorkspaceLogicalKey(item.name, item.color)))),
     syncStatus: {
       available: syncState.available,
       error: syncState.error,
@@ -408,9 +430,13 @@ function mergeWorkspaceSets(primaryWorkspaces, secondaryWorkspaces) {
 }
 
 function normalizeWorkspace(workspace) {
-  if (!workspace || !Array.isArray(workspace.tabUrls)) return null;
+  if (!workspace || (!Array.isArray(workspace.tabUrls) && !Array.isArray(workspace.tabEntries))) return null;
 
   const now = new Date().toISOString();
+  const tabEntries = normalizeWorkspaceTabEntries(workspace);
+  if (!tabEntries.length) return null;
+  const tabUrls = tabEntries.map((tab) => tab.url);
+
   return {
     id: String(workspace.id || crypto.randomUUID()),
     name: sanitizeText(workspace.name || "Grupo sem nome") || "Grupo sem nome",
@@ -418,11 +444,46 @@ function normalizeWorkspace(workspace) {
     collapsed: Boolean(workspace.collapsed),
     createdAt: String(workspace.createdAt || workspace.updatedAt || now),
     updatedAt: String(workspace.updatedAt || workspace.createdAt || now),
-    tabUrls: workspace.tabUrls.filter((url) => typeof url === "string" && url.length > 0),
-    meta: {
-      originalTabCount: Number(workspace?.meta?.originalTabCount || workspace.tabUrls.length || 0),
-    },
+    tabEntries,
+    tabUrls,
+    meta: normalizeWorkspaceMeta(workspace?.meta, tabUrls.length),
   };
+}
+
+function normalizeWorkspaceMeta(meta, defaultTabCount) {
+  const sourceDevice = normalizeSourceDevice(meta?.sourceDevice);
+  const originalTabCountRaw = Number(meta?.originalTabCount ?? defaultTabCount ?? 0);
+  const originalTabCount = Number.isFinite(originalTabCountRaw) && originalTabCountRaw >= 0
+    ? Math.floor(originalTabCountRaw)
+    : Number(defaultTabCount || 0);
+
+  return sourceDevice
+    ? { originalTabCount, sourceDevice }
+    : { originalTabCount };
+}
+
+function normalizeWorkspaceTabEntries(workspace) {
+  if (Array.isArray(workspace.tabEntries) && workspace.tabEntries.length) {
+    return workspace.tabEntries
+      .filter((tab) => typeof tab?.url === "string" && tab.url.length > 0)
+      .map((tab) => ({
+        url: tab.url,
+        title: sanitizeText(tab.title || tab.url || "Nova aba"),
+        favIconUrl: normalizeFavIconUrl(tab.favIconUrl),
+      }));
+  }
+
+  if (Array.isArray(workspace.tabUrls) && workspace.tabUrls.length) {
+    return workspace.tabUrls
+      .filter((url) => typeof url === "string" && url.length > 0)
+      .map((url) => ({
+        url,
+        title: sanitizeText(url),
+        favIconUrl: "",
+      }));
+  }
+
+  return [];
 }
 
 function sortWorkspaces(workspaces) {
@@ -461,6 +522,128 @@ function getWorkspaceLogicalKey(name, color) {
 
 function normalizeWorkspaceName(value) {
   return sanitizeText(value || "Grupo sem nome").toLocaleLowerCase();
+}
+
+async function getCurrentSourceDevice() {
+  const [platformInfo, browserInfo, deviceProfile] = await Promise.all([
+    safeGetPlatformInfo(),
+    safeGetBrowserInfo(),
+    getOrCreateDeviceProfile(),
+  ]);
+
+  const browserLabel = formatBrowserLabel(browserInfo);
+  const osLabel = formatOsLabel(platformInfo?.os);
+  const shortId = String(deviceProfile.id).slice(0, 6);
+
+  return {
+    id: deviceProfile.id,
+    label: `${browserLabel} em ${osLabel} (${shortId})`,
+    browser: browserLabel,
+    os: osLabel,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+async function getOrCreateDeviceProfile() {
+  try {
+    const stored = await browserApi.storage.local.get(DEVICE_PROFILE_KEY);
+    const existing = normalizeStoredDeviceProfile(stored?.[DEVICE_PROFILE_KEY]);
+    if (existing) return existing;
+  } catch {
+    // Ignore storage.local read failure and fallback to a transient identifier.
+  }
+
+  const created = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await browserApi.storage.local.set({ [DEVICE_PROFILE_KEY]: created });
+  } catch {
+    // Ignore storage.local write failure and continue with transient data.
+  }
+
+  return created;
+}
+
+function normalizeStoredDeviceProfile(profile) {
+  const id = sanitizeText(profile?.id || "");
+  if (!id) return null;
+
+  return {
+    id,
+    createdAt: sanitizeText(profile?.createdAt || ""),
+  };
+}
+
+async function safeGetPlatformInfo() {
+  try {
+    if (typeof browserApi?.runtime?.getPlatformInfo !== "function") return null;
+    return await browserApi.runtime.getPlatformInfo();
+  } catch {
+    return null;
+  }
+}
+
+async function safeGetBrowserInfo() {
+  try {
+    if (typeof browserApi?.runtime?.getBrowserInfo !== "function") return null;
+    return await browserApi.runtime.getBrowserInfo();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSourceDevice(sourceDevice) {
+  const id = sanitizeText(sourceDevice?.id || "");
+  if (!id) return null;
+
+  const browser = sanitizeText(sourceDevice?.browser || "");
+  const os = sanitizeText(sourceDevice?.os || "");
+  const shortId = id.slice(0, 6);
+  const label = sanitizeText(sourceDevice?.label || "") || `${browser || "Firefox"} em ${os || "sistema desconhecido"} (${shortId})`;
+  const capturedAt = sanitizeText(sourceDevice?.capturedAt || "");
+
+  return capturedAt
+    ? { id, label, browser, os, capturedAt }
+    : { id, label, browser, os };
+}
+
+function formatBrowserLabel(browserInfo) {
+  const name = sanitizeText(browserInfo?.name || "Firefox");
+  const version = sanitizeText(browserInfo?.version || "");
+  const majorVersion = version.split(".")[0];
+  return majorVersion ? `${name} ${majorVersion}` : name;
+}
+
+function formatOsLabel(os) {
+  const byCode = {
+    win: "Windows",
+    mac: "macOS",
+    linux: "Linux",
+    android: "Android",
+    cros: "ChromeOS",
+    openbsd: "OpenBSD",
+  };
+  const normalized = sanitizeText(os || "").toLocaleLowerCase();
+  return byCode[normalized] || (normalized ? normalized : "sistema desconhecido");
+}
+
+function getTabUrl(tab) {
+  if (typeof tab?.url === "string" && tab.url.length > 0) return tab.url;
+  if (typeof tab?.pendingUrl === "string" && tab.pendingUrl.length > 0) return tab.pendingUrl;
+  return "about:blank";
+}
+
+function getTabTitle(tab, url) {
+  const cleanTitle = sanitizeText(tab?.title || "");
+  if (cleanTitle) return cleanTitle;
+  return sanitizeText(url || "Nova aba");
+}
+
+function normalizeFavIconUrl(value) {
+  return typeof value === "string" && value.length > 0 ? value : "";
 }
 
 function isRestorableUrl(url) {

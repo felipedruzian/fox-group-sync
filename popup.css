@@ -123,6 +123,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
 }
 
 .card-header {
@@ -154,6 +155,12 @@ body {
   text-overflow: ellipsis;
 }
 
+.tab-total {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .meta {
   margin-top: 6px;
   font-size: 12px;
@@ -162,14 +169,77 @@ body {
 
 .preview {
   margin-top: 8px;
-  padding-left: 18px;
+  padding-left: 0;
   color: var(--muted);
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  list-style: none;
 }
 
 .preview li {
   margin: 2px 0;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tab-item {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+  object-fit: contain;
+}
+
+.tab-favicon.placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  color: #a9bad1;
+  border: 1px solid rgba(169, 186, 209, 0.3);
+  background: rgba(169, 186, 209, 0.08);
+}
+
+.tab-text {
+  display: block;
+  flex: 1 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.tabs-details {
+  margin-top: 6px;
+}
+
+.tabs-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tabs-details[open] summary {
+  margin-bottom: 6px;
 }
 
 .actions {
@@ -240,6 +310,97 @@ button:disabled {
   border-radius: 10px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.74);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  z-index: 30;
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 396px;
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.modal-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modal-text {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diff-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.diff-panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.diff-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+.diff-list li {
+  margin: 2px 0;
+  max-width: 100%;
+}
+
+.diff-list.added li {
+  color: #4ade80;
+}
+
+.diff-list.removed li {
+  color: #f87171;
+}
+
+.modal-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modal-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 code {
