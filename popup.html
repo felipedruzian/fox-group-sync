@@ -26,8 +26,12 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Workspaces salvos</h2>
-          <span class="hint">Sincronizados via <code>storage.sync</code></span>
+          <div class="header-actions">
+            <span class="hint">Sincronizados via <code>storage.sync</code></span>
+            <button id="btnRefreshSaved" class="secondary">Atualizar sync</button>
+          </div>
         </div>
+        <div id="syncStatus" class="sync-status"></div>
         <div id="savedWorkspaces" class="list"></div>
       </section>
     </main>

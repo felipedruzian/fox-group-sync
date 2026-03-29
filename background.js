@@ -1,8 +1,11 @@
 const browserApi = globalThis.browser ?? globalThis.chrome;
 
-const STORAGE_KEY = "workspaceGroupSync.workspaces.v1";
+const LEGACY_STORAGE_KEY = "workspaceGroupSync.workspaces.v1";
+const WORKSPACE_KEY_PREFIX = "workspaceGroupSync.workspace.";
 const MAX_WORKSPACES = 100;
 const TAB_GROUP_NONE = -1;
+const SYNC_QUOTA_BYTES = 102400;
+const SYNC_MAX_ITEM_BYTES = 8192;
 
 browserApi.runtime.onMessage.addListener((message) => handleMessage(message));
 
@@ -23,16 +26,17 @@ async function handleMessage(message) {
 
 async function getState() {
   const supported = hasTabGroupsSupport();
-  const [currentGroups, workspaces] = await Promise.all([
+  const [currentGroups, workspaceState] = await Promise.all([
     supported ? listCurrentWindowGroups() : Promise.resolve([]),
-    loadWorkspaces(),
+    getWorkspaceState(),
   ]);
 
   return {
     ok: true,
     supported,
     currentGroups,
-    workspaces: workspaces.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
+    syncStatus: workspaceState.syncStatus,
+    workspaces: sortWorkspaces(workspaceState.workspaces),
   };
 }
 
@@ -102,12 +106,12 @@ async function saveGroup(groupId) {
     return { ok: false, error: "Não há abas para salvar neste grupo." };
   }
 
-  const now = new Date().toISOString();
-  const workspaces = await loadWorkspaces();
+  const { workspaces } = await getWorkspaceState();
   const existing = workspaces
     .filter((item) => isSameWorkspaceKey(item, group))
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+    .sort(compareWorkspacesByFreshness)[0];
 
+  const now = new Date().toISOString();
   const workspace = existing
     ? {
         ...existing,
@@ -133,17 +137,23 @@ async function saveGroup(groupId) {
         },
       };
 
-  const next = [
-    workspace,
-    ...workspaces.filter((item) => item.id !== workspace.id && !isSameWorkspaceKey(item, group)),
-  ].slice(0, MAX_WORKSPACES);
-  await saveWorkspaces(next);
+  const duplicateIds = workspaces
+    .filter((item) => item.id !== workspace.id && isSameWorkspaceKey(item, group))
+    .map((item) => item.id);
+
+  await Promise.all([
+    saveWorkspaceToArea(browserApi.storage.sync, workspace, duplicateIds),
+    saveWorkspaceToArea(browserApi.storage.local, workspace, duplicateIds),
+  ]);
+
+  const { syncStatus } = await getWorkspaceState();
 
   return {
     ok: true,
     message: existing
       ? `Grupo "${workspace.name}" atualizado no sync do Firefox.`
       : `Grupo "${workspace.name}" salvo e enviado para sincronização do Firefox.`,
+    syncStatus,
     workspace,
   };
 }
@@ -220,19 +230,184 @@ async function deleteWorkspace(workspaceId) {
     return { ok: false, error: "Workspace não encontrado para exclusão." };
   }
 
-  const next = workspaces.filter((item) => item.id !== workspaceId);
-  await saveWorkspaces(next);
+  await Promise.all([
+    deleteWorkspaceFromArea(browserApi.storage.sync, workspaceId),
+    deleteWorkspaceFromArea(browserApi.storage.local, workspaceId),
+  ]);
+
   return { ok: true, message: "Workspace excluído do sync da extensão." };
 }
 
 async function loadWorkspaces() {
-  const result = await browserApi.storage.sync.get(STORAGE_KEY);
-  const items = result?.[STORAGE_KEY];
-  return Array.isArray(items) ? items : [];
+  const state = await getWorkspaceState();
+  return state.workspaces;
 }
 
-async function saveWorkspaces(workspaces) {
-  await browserApi.storage.sync.set({ [STORAGE_KEY]: workspaces });
+async function getWorkspaceState() {
+  const [syncState, localState] = await Promise.all([
+    loadAreaWorkspaceState(browserApi.storage.sync),
+    loadAreaWorkspaceState(browserApi.storage.local),
+  ]);
+
+  const merged = mergeWorkspaceSets(syncState.workspaces, localState.workspaces).slice(0, MAX_WORKSPACES);
+
+  if (localState.available && shouldReplaceLocalCache(localState.workspaces, merged)) {
+    await replaceAreaWorkspaces(browserApi.storage.local, localState.workspaces, merged);
+    const refreshedLocalState = await loadAreaWorkspaceState(browserApi.storage.local);
+    localState.workspaces = refreshedLocalState.workspaces;
+    localState.bytesInUse = refreshedLocalState.bytesInUse;
+    localState.keyPresent = refreshedLocalState.keyPresent;
+  }
+
+  return {
+    workspaces: merged,
+    syncStatus: {
+      available: syncState.available,
+      error: syncState.error,
+      keyPresent: syncState.keyPresent,
+      workspaceCount: syncState.workspaces.length,
+      bytesInUse: syncState.bytesInUse,
+      quotaBytes: SYNC_QUOTA_BYTES,
+      maxItemBytes: SYNC_MAX_ITEM_BYTES,
+      localBackupCount: localState.workspaces.length,
+      localBytesInUse: localState.bytesInUse,
+      source: syncState.workspaces.length ? "sync" : localState.workspaces.length ? "local" : "empty",
+      checkedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function loadAreaWorkspaceState(area) {
+  try {
+    const allItems = await area.get(null);
+    const legacyWorkspaces = Array.isArray(allItems?.[LEGACY_STORAGE_KEY])
+      ? allItems[LEGACY_STORAGE_KEY].map(normalizeWorkspace).filter(Boolean)
+      : [];
+    const areaWorkspaces = Object.entries(allItems || {})
+      .filter(([key]) => key.startsWith(WORKSPACE_KEY_PREFIX))
+      .map(([, value]) => normalizeWorkspace(value))
+      .filter(Boolean);
+
+    const workspaces = mergeWorkspaceSets(areaWorkspaces, legacyWorkspaces);
+    if (legacyWorkspaces.length > 0 || areaWorkspaces.length !== workspaces.length) {
+      await replaceAreaWorkspaces(area, areaWorkspaces, workspaces);
+    }
+
+    return {
+      available: true,
+      error: "",
+      keyPresent: areaWorkspaces.length > 0 || legacyWorkspaces.length > 0,
+      workspaces,
+      bytesInUse: await area.getBytesInUse(null),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      error: error?.message || String(error),
+      keyPresent: false,
+      workspaces: [],
+      bytesInUse: 0,
+    };
+  }
+}
+
+async function saveWorkspaceToArea(area, workspace, duplicateIds = []) {
+  const payload = {
+    [workspaceStorageKey(workspace.id)]: workspace,
+  };
+  await area.set(payload);
+
+  const keysToRemove = duplicateIds.map((id) => workspaceStorageKey(id));
+  if (keysToRemove.length > 0) {
+    await area.remove(keysToRemove);
+  }
+
+  await area.remove(LEGACY_STORAGE_KEY);
+}
+
+async function deleteWorkspaceFromArea(area, workspaceId) {
+  await area.remove([workspaceStorageKey(workspaceId), LEGACY_STORAGE_KEY]);
+}
+
+async function replaceAreaWorkspaces(area, currentWorkspaces, nextWorkspaces) {
+  const nextPayload = {};
+  for (const workspace of nextWorkspaces) {
+    nextPayload[workspaceStorageKey(workspace.id)] = workspace;
+  }
+
+  if (Object.keys(nextPayload).length > 0) {
+    await area.set(nextPayload);
+  }
+
+  const nextKeys = new Set(Object.keys(nextPayload));
+  const keysToRemove = currentWorkspaces
+    .map((workspace) => workspaceStorageKey(workspace.id))
+    .filter((key) => !nextKeys.has(key));
+
+  keysToRemove.push(LEGACY_STORAGE_KEY);
+  await area.remove(keysToRemove);
+}
+
+function mergeWorkspaceSets(primaryWorkspaces, secondaryWorkspaces) {
+  const byId = new Map();
+
+  for (const workspace of [...primaryWorkspaces, ...secondaryWorkspaces]) {
+    const current = byId.get(workspace.id);
+    if (!current || compareWorkspacesByFreshness(workspace, current) < 0) {
+      byId.set(workspace.id, workspace);
+    }
+  }
+
+  const byLogicalKey = new Map();
+  for (const workspace of byId.values()) {
+    const logicalKey = getWorkspaceLogicalKey(workspace.name, workspace.color);
+    const current = byLogicalKey.get(logicalKey);
+    if (!current || compareWorkspacesByFreshness(workspace, current) < 0) {
+      byLogicalKey.set(logicalKey, workspace);
+    }
+  }
+
+  return sortWorkspaces(Array.from(byLogicalKey.values()));
+}
+
+function normalizeWorkspace(workspace) {
+  if (!workspace || !Array.isArray(workspace.tabUrls)) return null;
+
+  const now = new Date().toISOString();
+  return {
+    id: String(workspace.id || crypto.randomUUID()),
+    name: sanitizeText(workspace.name || "Grupo sem nome") || "Grupo sem nome",
+    color: String(workspace.color || "grey"),
+    collapsed: Boolean(workspace.collapsed),
+    createdAt: String(workspace.createdAt || workspace.updatedAt || now),
+    updatedAt: String(workspace.updatedAt || workspace.createdAt || now),
+    tabUrls: workspace.tabUrls.filter((url) => typeof url === "string" && url.length > 0),
+    meta: {
+      originalTabCount: Number(workspace?.meta?.originalTabCount || workspace.tabUrls.length || 0),
+    },
+  };
+}
+
+function sortWorkspaces(workspaces) {
+  return [...workspaces].sort(compareWorkspacesByFreshness);
+}
+
+function compareWorkspacesByFreshness(a, b) {
+  return String(b.updatedAt).localeCompare(String(a.updatedAt));
+}
+
+function shouldReplaceLocalCache(currentWorkspaces, nextWorkspaces) {
+  return getWorkspaceSignature(currentWorkspaces) !== getWorkspaceSignature(nextWorkspaces);
+}
+
+function getWorkspaceSignature(workspaces) {
+  return sortWorkspaces(workspaces)
+    .map((workspace) => `${workspace.id}:${workspace.updatedAt}:${workspace.tabUrls.length}`)
+    .join("|");
+}
+
+function workspaceStorageKey(workspaceId) {
+  return `${WORKSPACE_KEY_PREFIX}${workspaceId}`;
 }
 
 function sanitizeText(value) {
@@ -240,10 +415,11 @@ function sanitizeText(value) {
 }
 
 function isSameWorkspaceKey(workspace, group) {
-  return (
-    normalizeWorkspaceName(workspace?.name) === normalizeWorkspaceName(group?.title) &&
-    String(workspace?.color || "grey") === String(group?.color || "grey")
-  );
+  return getWorkspaceLogicalKey(workspace?.name, workspace?.color) === getWorkspaceLogicalKey(group?.title, group?.color);
+}
+
+function getWorkspaceLogicalKey(name, color) {
+  return `${normalizeWorkspaceName(name)}::${String(color || "grey")}`;
 }
 
 function normalizeWorkspaceName(value) {

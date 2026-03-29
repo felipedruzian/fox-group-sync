@@ -2,19 +2,25 @@ const browserApi = globalThis.browser ?? globalThis.chrome;
 
 const currentGroupsEl = document.getElementById("currentGroups");
 const savedWorkspacesEl = document.getElementById("savedWorkspaces");
+const syncStatusEl = document.getElementById("syncStatus");
 const noticeEl = document.getElementById("notice");
 const btnRefresh = document.getElementById("btnRefresh");
+const btnRefreshSaved = document.getElementById("btnRefreshSaved");
 
 btnRefresh.addEventListener("click", () => loadState());
+btnRefreshSaved.addEventListener("click", () => loadState());
 document.addEventListener("DOMContentLoaded", () => loadState());
+browserApi.storage?.sync?.onChanged?.addListener(() => loadState());
 
 async function loadState() {
   showNotice("", "");
   try {
     const state = await browserApi.runtime.sendMessage({ type: "GET_STATE" });
+    renderSyncStatus(state?.syncStatus);
 
     if (!state?.supported) {
-      renderUnsupported();
+      renderCurrentUnsupported();
+      renderSavedWorkspaces(state.workspaces || []);
       return;
     }
 
@@ -25,14 +31,14 @@ async function loadState() {
   }
 }
 
-function renderUnsupported() {
+function renderCurrentUnsupported() {
   currentGroupsEl.innerHTML = `<div class="empty">Esta versão do Firefox não expõe as APIs necessárias para grupos de abas.</div>`;
-  savedWorkspacesEl.innerHTML = `<div class="empty">Sem suporte a restauração de grupos nesta instalação.</div>`;
 }
 
 function renderError(message) {
   currentGroupsEl.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
-  savedWorkspacesEl.innerHTML = "";
+  savedWorkspacesEl.innerHTML = `<div class="empty">Não foi possível carregar os workspaces salvos.</div>`;
+  syncStatusEl.textContent = "";
 }
 
 function renderCurrentGroups(groups) {
@@ -75,7 +81,7 @@ function renderCurrentGroups(groups) {
         if (!response?.ok) {
           showNotice(response?.error || "Não foi possível salvar o grupo.", "error");
         } else {
-          showNotice(response.message, "success");
+          showNotice(formatSaveMessage(response), "success");
           await loadState();
         }
       } catch (error) {
@@ -164,6 +170,42 @@ function renderSavedWorkspaces(workspaces) {
   });
 }
 
+function renderSyncStatus(syncStatus) {
+  if (!syncStatus?.available) {
+    const localBackup = syncStatus?.localBackupCount
+      ? ` Cache local: ${syncStatus.localBackupCount} grupo(s).`
+      : "";
+    syncStatusEl.textContent = `storage.sync: não foi possível verificar o estado agora.${localBackup}`;
+    return;
+  }
+
+  const usage = `${formatBytes(syncStatus.bytesInUse)} / ${formatBytes(syncStatus.quotaBytes)}`;
+  const localUsage = `cache local: ${syncStatus.localBackupCount || 0} grupo(s), ${formatBytes(syncStatus.localBytesInUse)} usados.`;
+
+  if (syncStatus.workspaceCount > 0) {
+    syncStatusEl.textContent = `storage.sync: ${syncStatus.workspaceCount} grupo(s) encontrado(s), ${usage} usados. ${localUsage}`;
+    return;
+  }
+
+  if (syncStatus.localBackupCount > 0) {
+    syncStatusEl.textContent = `storage.sync: vazio para esta extensão, ${usage} usados. Exibindo ${localUsage}`;
+    return;
+  }
+
+  syncStatusEl.textContent = syncStatus.keyPresent
+    ? `storage.sync: nenhuma entrada válida encontrada, ${usage} usados. ${localUsage}`
+    : `storage.sync: vazio para esta extensão, ${usage} usados. ${localUsage}`;
+}
+
+function formatSaveMessage(response) {
+  const syncStatus = response?.syncStatus;
+  if (!syncStatus?.available) {
+    return response.message;
+  }
+
+  return `${response.message} storage.sync: ${syncStatus.workspaceCount} grupo(s), ${formatBytes(syncStatus.bytesInUse)} usados. cache local: ${syncStatus.localBackupCount || 0} grupo(s).`;
+}
+
 function showNotice(message, type) {
   noticeEl.textContent = message;
   noticeEl.className = "notice";
@@ -197,6 +239,12 @@ function colorToCss(color) {
     orange: "#fb923c",
   };
   return map[color] || "#94a3b8";
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  return `${(value / 1024).toFixed(1)} KB`;
 }
 
 function escapeHtml(value) {
