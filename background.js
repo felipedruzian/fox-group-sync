@@ -103,27 +103,47 @@ async function saveGroup(groupId) {
   }
 
   const now = new Date().toISOString();
-  const workspace = {
-    id: crypto.randomUUID(),
-    name: group.title || "Grupo sem nome",
-    color: group.color || "grey",
-    collapsed: Boolean(group.collapsed),
-    createdAt: now,
-    updatedAt: now,
-    tabUrls,
-    meta: {
-      originalTabCount: tabUrls.length,
-      preview: group.preview,
-    },
-  };
-
   const workspaces = await loadWorkspaces();
-  const next = [workspace, ...workspaces].slice(0, MAX_WORKSPACES);
+  const existing = workspaces
+    .filter((item) => isSameWorkspaceKey(item, group))
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+
+  const workspace = existing
+    ? {
+        ...existing,
+        name: group.title || "Grupo sem nome",
+        color: group.color || "grey",
+        collapsed: Boolean(group.collapsed),
+        updatedAt: now,
+        tabUrls,
+        meta: {
+          originalTabCount: tabUrls.length,
+        },
+      }
+    : {
+        id: crypto.randomUUID(),
+        name: group.title || "Grupo sem nome",
+        color: group.color || "grey",
+        collapsed: Boolean(group.collapsed),
+        createdAt: now,
+        updatedAt: now,
+        tabUrls,
+        meta: {
+          originalTabCount: tabUrls.length,
+        },
+      };
+
+  const next = [
+    workspace,
+    ...workspaces.filter((item) => item.id !== workspace.id && !isSameWorkspaceKey(item, group)),
+  ].slice(0, MAX_WORKSPACES);
   await saveWorkspaces(next);
 
   return {
     ok: true,
-    message: `Grupo \"${workspace.name}\" salvo e enviado para sincronização do Firefox.`,
+    message: existing
+      ? `Grupo "${workspace.name}" atualizado no sync do Firefox.`
+      : `Grupo "${workspace.name}" salvo e enviado para sincronização do Firefox.`,
     workspace,
   };
 }
@@ -187,7 +207,7 @@ async function restoreWorkspace(workspaceId) {
 
   return {
     ok: true,
-    message: `Workspace \"${workspace.name}\" restaurado em um novo grupo nesta janela.`,
+    message: `Workspace "${workspace.name}" restaurado em um novo grupo nesta janela.`,
     restoredTabCount: createdTabIds.length,
     skippedUrls,
   };
@@ -217,6 +237,17 @@ async function saveWorkspaces(workspaces) {
 
 function sanitizeText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function isSameWorkspaceKey(workspace, group) {
+  return (
+    normalizeWorkspaceName(workspace?.name) === normalizeWorkspaceName(group?.title) &&
+    String(workspace?.color || "grey") === String(group?.color || "grey")
+  );
+}
+
+function normalizeWorkspaceName(value) {
+  return sanitizeText(value || "Grupo sem nome").toLocaleLowerCase();
 }
 
 function isRestorableUrl(url) {

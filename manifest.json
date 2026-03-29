@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Workspace Group Sync (Personal)",
-  "version": "0.1.0",
+  "name": "Fox Group Sync",
+  "version": "0.1.1",
   "description": "Salva grupos de abas nativos do Firefox e sincroniza os snapshots entre Firefox desktop usando a conta Mozilla.",
-  "permissions": ["storage", "tabs", "tabGroups"],
+  "permissions": ["storage", "tabs"],
   "action": {
-    "default_title": "Workspace Group Sync",
+    "default_title": "Fox Group Sync",
     "default_popup": "popup.html"
   },
   "background": {
@@ -17,8 +17,11 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "workspace-group-sync@felipedruzian.local",
-      "strict_min_version": "141.0"
+      "id": "fox-group-sync@felipedruzian.local",
+      "strict_min_version": "141.0",
+      "data_collection_permissions": {
+        "required": ["browsingActivity", "searchTerms"]
+      }
     }
   }
 }
