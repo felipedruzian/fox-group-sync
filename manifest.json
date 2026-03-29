@@ -3,7 +3,7 @@
   "name": "Fox Group Sync",
   "version": "0.1.1",
   "description": "Salva grupos de abas nativos do Firefox e sincroniza os snapshots entre Firefox desktop usando a conta Mozilla.",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "tabGroups"],
   "action": {
     "default_title": "Fox Group Sync",
     "default_popup": "popup.html"

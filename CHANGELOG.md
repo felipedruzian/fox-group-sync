@@ -4,6 +4,7 @@
 
 - adicionado `.gitignore`, `CHANGELOG.md` e `LICENSE`
 - ajustado o manifesto para submissão `unlisted/self-distributed` na AMO
+- restaurada a permissão `tabGroups`, necessária para a API de grupos de abas no Firefox
 - corrigido o salvamento para atualizar workspaces existentes com o mesmo nome e a mesma cor
 - limitado o popup para não expandir com títulos longos de abas
 
