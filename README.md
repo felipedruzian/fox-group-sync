@@ -46,6 +46,12 @@ Este repositório foi preparado para o caso de uso pessoal pedido: sincronizar g
 3. Selecione qualquer arquivo dentro desta pasta, por exemplo `manifest.json`
 4. A extensão ficará carregada até reiniciar o Firefox
 
+Observação importante para testes:
+
+- no modo temporário, remover/descarregar a extensão pode apagar dados da própria extensão em `storage.local` e `storage.sync`;
+- para validar sincronização entre dispositivos, prefira manter a extensão carregada e usar `Sync Now` nos dois Firefox;
+- para validar reinstalação de forma realista, use o `.xpi` assinado (unlisted), não só o temporário.
+
 ## Assinatura na AMO
 
 Para Firefox release/beta, o add-on precisa ser **assinado pela Mozilla**.

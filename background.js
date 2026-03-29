@@ -19,6 +19,8 @@ async function handleMessage(message) {
       return restoreWorkspace(message.workspaceId);
     case "DELETE_WORKSPACE":
       return deleteWorkspace(message.workspaceId);
+    case "CLEAR_ALL_WORKSPACES":
+      return clearAllWorkspaces();
     default:
       return { ok: false, error: "Ação desconhecida." };
   }
@@ -238,6 +240,22 @@ async function deleteWorkspace(workspaceId) {
   return { ok: true, message: "Workspace excluído do sync da extensão." };
 }
 
+async function clearAllWorkspaces() {
+  const [removedSync, removedLocal] = await Promise.all([
+    clearWorkspacesFromArea(browserApi.storage.sync),
+    clearWorkspacesFromArea(browserApi.storage.local),
+  ]);
+  const { syncStatus } = await getWorkspaceState();
+
+  return {
+    ok: true,
+    message: `Todos os grupos salvos foram removidos. sync: ${removedSync}, cache local: ${removedLocal}.`,
+    removedSync,
+    removedLocal,
+    syncStatus,
+  };
+}
+
 async function loadWorkspaces() {
   const state = await getWorkspaceState();
   return state.workspaces;
@@ -327,6 +345,25 @@ async function saveWorkspaceToArea(area, workspace, duplicateIds = []) {
 
 async function deleteWorkspaceFromArea(area, workspaceId) {
   await area.remove([workspaceStorageKey(workspaceId), LEGACY_STORAGE_KEY]);
+}
+
+async function clearWorkspacesFromArea(area) {
+  try {
+    const keys = await getWorkspaceKeysFromArea(area);
+    if (!keys.length) return 0;
+    await area.remove(keys);
+    return keys.length;
+  } catch {
+    return 0;
+  }
+}
+
+async function getWorkspaceKeysFromArea(area) {
+  const allItems = await area.get(null);
+  const workspaceKeys = Object.keys(allItems || {}).filter((key) => key.startsWith(WORKSPACE_KEY_PREFIX));
+  return allItems && Object.prototype.hasOwnProperty.call(allItems, LEGACY_STORAGE_KEY)
+    ? [...workspaceKeys, LEGACY_STORAGE_KEY]
+    : workspaceKeys;
 }
 
 async function replaceAreaWorkspaces(area, currentWorkspaces, nextWorkspaces) {

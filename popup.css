@@ -88,6 +88,20 @@ body {
   justify-content: flex-end;
 }
 
+.sync-loader {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  display: none;
+}
+
+.sync-loader.show {
+  display: inline-block;
+  animation: spin 0.9s linear infinite;
+}
+
 .hint {
   font-size: 12px;
   color: var(--muted);
@@ -174,15 +188,16 @@ button {
   background: var(--accent);
   color: #08111f;
   font-weight: 600;
-  transition: filter 120ms ease, transform 120ms ease;
+  transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
 
-button:hover {
-  color: #3a424f;
+button:hover:not(:disabled) {
+  color: #08111f;
   filter: brightness(1.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset;
 }
 
-button:active {
+button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
@@ -196,9 +211,28 @@ button.secondary {
   color: var(--text);
 }
 
+button.secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  filter: none;
+}
+
 button.danger {
   background: var(--danger);
   color: #180909;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #ff8a8a;
+  color: #180909;
+  filter: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  filter: none;
+  box-shadow: none;
 }
 
 .empty {
@@ -211,4 +245,10 @@ button.danger {
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -6,13 +6,19 @@ const syncStatusEl = document.getElementById("syncStatus");
 const noticeEl = document.getElementById("notice");
 const btnRefresh = document.getElementById("btnRefresh");
 const btnRefreshSaved = document.getElementById("btnRefreshSaved");
+const btnClearAll = document.getElementById("btnClearAll");
+const syncLoaderEl = document.getElementById("syncLoader");
+let pendingOperations = 0;
 
-btnRefresh.addEventListener("click", () => loadState());
-btnRefreshSaved.addEventListener("click", () => loadState());
-document.addEventListener("DOMContentLoaded", () => loadState());
-browserApi.storage?.sync?.onChanged?.addListener(() => loadState());
+btnRefresh.addEventListener("click", () => loadState({ showLoading: true }));
+btnRefreshSaved.addEventListener("click", () => loadState({ showLoading: true }));
+btnClearAll.addEventListener("click", () => clearAllWorkspaces());
+document.addEventListener("DOMContentLoaded", () => loadState({ showLoading: true }));
+browserApi.storage?.sync?.onChanged?.addListener(() => loadState({ showLoading: false }));
 
-async function loadState() {
+async function loadState(options = {}) {
+  const showLoading = options.showLoading !== false;
+  if (showLoading) setLoading(true);
   showNotice("", "");
   try {
     const state = await browserApi.runtime.sendMessage({ type: "GET_STATE" });
@@ -28,6 +34,8 @@ async function loadState() {
     renderSavedWorkspaces(state.workspaces || []);
   } catch (error) {
     renderError(`Falha ao carregar a extensão: ${error?.message || error}`);
+  } finally {
+    if (showLoading) setLoading(false);
   }
 }
 
@@ -72,6 +80,7 @@ function renderCurrentGroups(groups) {
   currentGroupsEl.querySelectorAll("[data-action='save']").forEach((button) => {
     button.addEventListener("click", async () => {
       button.disabled = true;
+      setLoading(true);
       try {
         const response = await browserApi.runtime.sendMessage({
           type: "SAVE_GROUP",
@@ -82,11 +91,12 @@ function renderCurrentGroups(groups) {
           showNotice(response?.error || "Não foi possível salvar o grupo.", "error");
         } else {
           showNotice(formatSaveMessage(response), "success");
-          await loadState();
+          await loadState({ showLoading: false });
         }
       } catch (error) {
         showNotice(`Erro ao salvar: ${error?.message || error}`, "error");
       } finally {
+        setLoading(false);
         button.disabled = false;
       }
     });
@@ -123,6 +133,7 @@ function renderSavedWorkspaces(workspaces) {
   savedWorkspacesEl.querySelectorAll("[data-action='restore']").forEach((button) => {
     button.addEventListener("click", async () => {
       button.disabled = true;
+      setLoading(true);
       try {
         const response = await browserApi.runtime.sendMessage({
           type: "RESTORE_WORKSPACE",
@@ -141,6 +152,7 @@ function renderSavedWorkspaces(workspaces) {
       } catch (error) {
         showNotice(`Erro ao restaurar: ${error?.message || error}`, "error");
       } finally {
+        setLoading(false);
         button.disabled = false;
       }
     });
@@ -149,6 +161,7 @@ function renderSavedWorkspaces(workspaces) {
   savedWorkspacesEl.querySelectorAll("[data-action='delete']").forEach((button) => {
     button.addEventListener("click", async () => {
       button.disabled = true;
+      setLoading(true);
       try {
         const response = await browserApi.runtime.sendMessage({
           type: "DELETE_WORKSPACE",
@@ -159,15 +172,41 @@ function renderSavedWorkspaces(workspaces) {
           showNotice(response?.error || "Não foi possível excluir o workspace.", "error");
         } else {
           showNotice(response.message, "success");
-          await loadState();
+          await loadState({ showLoading: false });
         }
       } catch (error) {
         showNotice(`Erro ao excluir: ${error?.message || error}`, "error");
       } finally {
+        setLoading(false);
         button.disabled = false;
       }
     });
   });
+}
+
+async function clearAllWorkspaces() {
+  const confirmed = globalThis.confirm(
+    "Isso vai remover todos os grupos salvos no storage.sync e no cache local desta extensão. Deseja continuar?"
+  );
+  if (!confirmed) return;
+
+  btnClearAll.disabled = true;
+  setLoading(true);
+  try {
+    const response = await browserApi.runtime.sendMessage({ type: "CLEAR_ALL_WORKSPACES" });
+    if (!response?.ok) {
+      showNotice(response?.error || "Não foi possível limpar os grupos salvos.", "error");
+      return;
+    }
+
+    showNotice(response.message, "success");
+    await loadState({ showLoading: false });
+  } catch (error) {
+    showNotice(`Erro ao limpar grupos salvos: ${error?.message || error}`, "error");
+  } finally {
+    setLoading(false);
+    btnClearAll.disabled = false;
+  }
 }
 
 function renderSyncStatus(syncStatus) {
@@ -181,20 +220,21 @@ function renderSyncStatus(syncStatus) {
 
   const usage = `${formatBytes(syncStatus.bytesInUse)} / ${formatBytes(syncStatus.quotaBytes)}`;
   const localUsage = `cache local: ${syncStatus.localBackupCount || 0} grupo(s), ${formatBytes(syncStatus.localBytesInUse)} usados.`;
+  const source = `origem atual: ${syncStatus.source || "desconhecida"}.`;
 
   if (syncStatus.workspaceCount > 0) {
-    syncStatusEl.textContent = `storage.sync: ${syncStatus.workspaceCount} grupo(s) encontrado(s), ${usage} usados. ${localUsage}`;
+    syncStatusEl.textContent = `storage.sync: ${syncStatus.workspaceCount} grupo(s) encontrado(s), ${usage} usados. ${localUsage} ${source}`;
     return;
   }
 
   if (syncStatus.localBackupCount > 0) {
-    syncStatusEl.textContent = `storage.sync: vazio para esta extensão, ${usage} usados. Exibindo ${localUsage}`;
+    syncStatusEl.textContent = `storage.sync: vazio para esta extensão, ${usage} usados. Exibindo ${localUsage} ${source}`;
     return;
   }
 
   syncStatusEl.textContent = syncStatus.keyPresent
-    ? `storage.sync: nenhuma entrada válida encontrada, ${usage} usados. ${localUsage}`
-    : `storage.sync: vazio para esta extensão, ${usage} usados. ${localUsage}`;
+    ? `storage.sync: nenhuma entrada válida encontrada, ${usage} usados. ${localUsage} ${source}`
+    : `storage.sync: vazio para esta extensão, ${usage} usados. ${localUsage} ${source}`;
 }
 
 function formatSaveMessage(response) {
@@ -239,6 +279,12 @@ function colorToCss(color) {
     orange: "#fb923c",
   };
   return map[color] || "#94a3b8";
+}
+
+function setLoading(isLoading) {
+  pendingOperations = isLoading ? pendingOperations + 1 : Math.max(0, pendingOperations - 1);
+  const active = pendingOperations > 0;
+  syncLoaderEl.classList.toggle("show", active);
 }
 
 function formatBytes(bytes) {

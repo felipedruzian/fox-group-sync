@@ -12,6 +12,9 @@
 - adicionados estados visuais de hover/focus nos botões
 - trocado o formato de persistência para múltiplas chaves no `storage.sync`, com migração do formato antigo
 - adicionado espelhamento em `storage.local` como cache/backup da instalação atual
+- adicionado botão `Limpar sync` com confirmação para remover todos os grupos sincronizados e cache local
+- adicionado indicador pequeno de carregamento durante operações de sincronização/atualização
+- documentadas no README as limitações de persistência em modo `Load Temporary Add-on`
 
 ## 0.1.0 - 2026-03-24
 
