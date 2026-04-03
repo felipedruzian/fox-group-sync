@@ -87,50 +87,63 @@ async function ensureUpdateConfirmPrefsLoaded() {
 }
 
 function renderCurrentUnsupported() {
-  currentGroupsEl.innerHTML = `<div class="empty">Esta versao do Firefox nao expoe as APIs necessarias para grupos de abas.</div>`;
+  replaceWithEmptyState(currentGroupsEl, "Esta versao do Firefox nao expoe as APIs necessarias para grupos de abas.");
 }
 
 function renderError(message) {
-  currentGroupsEl.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
-  savedWorkspacesEl.innerHTML = `<div class="empty">Nao foi possivel carregar os workspaces salvos.</div>`;
+  replaceWithEmptyState(currentGroupsEl, message);
+  replaceWithEmptyState(savedWorkspacesEl, "Nao foi possivel carregar os workspaces salvos.");
   syncStatusEl.textContent = "";
 }
 
 function renderCurrentGroups(groups, workspaces) {
   if (!groups.length) {
-    currentGroupsEl.innerHTML = `<div class="empty">Nenhum grupo nativo aberto na janela atual.</div>`;
+    replaceWithEmptyState(currentGroupsEl, "Nenhum grupo nativo aberto na janela atual.");
     return;
   }
 
   const groupsById = new Map(groups.map((group) => [String(group.groupId), group]));
   const syncedWorkspaceByKey = getSyncedWorkspaceByKey(workspaces);
 
-  currentGroupsEl.innerHTML = groups
-    .map((group) => {
-      const groupEntries = getGroupTabEntries(group);
-      const logicalKey = getWorkspaceLogicalKey(group.title, group.color);
-      const existingSynced = syncedWorkspaceByKey.get(logicalKey);
-      const actionText = existingSynced ? "Atualizar sync" : "Salvar no sync";
+  const cards = groups.map((group) => {
+    const groupEntries = getGroupTabEntries(group);
+    const logicalKey = getWorkspaceLogicalKey(group.title, group.color);
+    const existingSynced = syncedWorkspaceByKey.get(logicalKey);
+    const actionText = existingSynced ? "Atualizar sync" : "Salvar no sync";
 
-      return `
-        <article class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="color-dot" style="background:${escapeHtml(colorToCss(group.color))}"></span>
-              <span class="name">${escapeHtml(group.title)}</span>
-              <span class="tab-total">(${group.tabCount})</span>
-            </div>
-          </div>
-          ${renderTabPreview(groupEntries, `local-${group.groupId}`)}
-          <div class="actions">
-            <button data-action="save" data-group-id="${group.groupId}">${actionText}</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+    const article = document.createElement("article");
+    article.className = "card";
 
-  currentGroupsEl.querySelectorAll("[data-action='save']").forEach((button) => {
+    const header = document.createElement("div");
+    header.className = "card-header";
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+
+    const colorDot = document.createElement("span");
+    colorDot.className = "color-dot";
+    colorDot.style.background = colorToCss(group.color);
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "name";
+    nameEl.textContent = group.title;
+
+    const totalEl = document.createElement("span");
+    totalEl.className = "tab-total";
+    totalEl.textContent = `(${group.tabCount})`;
+
+    title.append(colorDot, nameEl, totalEl);
+    header.append(title);
+    article.append(header, renderTabPreview(groupEntries, `local-${group.groupId}`));
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const button = document.createElement("button");
+    button.dataset.action = "save";
+    button.dataset.groupId = String(group.groupId);
+    button.textContent = actionText;
+
     button.addEventListener("click", async () => {
       const group = groupsById.get(String(button.dataset.groupId));
       if (!group) return;
@@ -176,53 +189,83 @@ function renderCurrentGroups(groups, workspaces) {
         button.disabled = false;
       }
     });
+
+    actions.append(button);
+    article.append(actions);
+
+    return article;
   });
+
+  currentGroupsEl.replaceChildren(...cards);
 }
 
 function renderSavedWorkspaces(workspaces, currentGroups) {
   if (!workspaces.length) {
-    savedWorkspacesEl.innerHTML = `<div class="empty">Ainda nao existe nenhum grupo salvo no sync da extensao.</div>`;
+    replaceWithEmptyState(savedWorkspacesEl, "Ainda nao existe nenhum grupo salvo no sync da extensao.");
     return;
   }
 
   const localMetadataByGroupKey = getLocalMetadataByGroupKey(currentGroups || []);
 
-  savedWorkspacesEl.innerHTML = workspaces
-    .map((workspace) => {
-      const groupKey = getWorkspaceLogicalKey(workspace.name, workspace.color);
-      const localMetadataByUrl = localMetadataByGroupKey.get(groupKey) || new Map();
-      const tabEntries = enrichWorkspaceTabEntries(getWorkspaceTabEntries(workspace), localMetadataByUrl);
-      const sourceText = formatWorkspaceSource(workspace);
+  const cards = workspaces.map((workspace) => {
+    const groupKey = getWorkspaceLogicalKey(workspace.name, workspace.color);
+    const localMetadataByUrl = localMetadataByGroupKey.get(groupKey) || new Map();
+    const tabEntries = enrichWorkspaceTabEntries(getWorkspaceTabEntries(workspace), localMetadataByUrl);
+    const sourceText = formatWorkspaceSource(workspace);
 
-      return `
-        <article class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="color-dot" style="background:${escapeHtml(colorToCss(workspace.color))}"></span>
-              <span class="name">${escapeHtml(workspace.name)}</span>
-              <span class="tab-total">(${tabEntries.length})</span>
-            </div>
-          </div>
-          ${renderTabPreview(tabEntries, `saved-${workspace.id}`)}
-          <div class="meta">${escapeHtml(sourceText)}</div>
-          <div class="meta">Ultima atualizacao: ${escapeHtml(formatDate(workspace.updatedAt))}</div>
-          <div class="actions">
-            <button data-action="restore" data-workspace-id="${workspace.id}">Abrir grupo</button>
-            <button class="danger" data-action="delete" data-workspace-id="${workspace.id}">Excluir</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+    const article = document.createElement("article");
+    article.className = "card";
 
-  savedWorkspacesEl.querySelectorAll("[data-action='restore']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      button.disabled = true;
+    const header = document.createElement("div");
+    header.className = "card-header";
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+
+    const colorDot = document.createElement("span");
+    colorDot.className = "color-dot";
+    colorDot.style.background = colorToCss(workspace.color);
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "name";
+    nameEl.textContent = workspace.name;
+
+    const totalEl = document.createElement("span");
+    totalEl.className = "tab-total";
+    totalEl.textContent = `(${tabEntries.length})`;
+
+    title.append(colorDot, nameEl, totalEl);
+    header.append(title);
+
+    const sourceMeta = document.createElement("div");
+    sourceMeta.className = "meta";
+    sourceMeta.textContent = sourceText;
+
+    const updatedMeta = document.createElement("div");
+    updatedMeta.className = "meta";
+    updatedMeta.textContent = `Ultima atualizacao: ${formatDate(workspace.updatedAt)}`;
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const restoreButton = document.createElement("button");
+    restoreButton.dataset.action = "restore";
+    restoreButton.dataset.workspaceId = String(workspace.id);
+    restoreButton.textContent = "Abrir grupo";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "danger";
+    deleteButton.dataset.action = "delete";
+    deleteButton.dataset.workspaceId = String(workspace.id);
+    deleteButton.textContent = "Excluir";
+
+    restoreButton.addEventListener("click", async () => {
+      restoreButton.disabled = true;
       setLoading(true);
       try {
         const response = await browserApi.runtime.sendMessage({
           type: "RESTORE_WORKSPACE",
-          workspaceId: button.dataset.workspaceId,
+          workspaceId: restoreButton.dataset.workspaceId,
         });
 
         if (!response?.ok) {
@@ -238,19 +281,17 @@ function renderSavedWorkspaces(workspaces, currentGroups) {
         showNotice(`Erro ao restaurar: ${error?.message || error}`, "error");
       } finally {
         setLoading(false);
-        button.disabled = false;
+        restoreButton.disabled = false;
       }
     });
-  });
 
-  savedWorkspacesEl.querySelectorAll("[data-action='delete']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      button.disabled = true;
+    deleteButton.addEventListener("click", async () => {
+      deleteButton.disabled = true;
       setLoading(true);
       try {
         const response = await browserApi.runtime.sendMessage({
           type: "DELETE_WORKSPACE",
-          workspaceId: button.dataset.workspaceId,
+          workspaceId: deleteButton.dataset.workspaceId,
         });
 
         if (!response?.ok) {
@@ -263,10 +304,17 @@ function renderSavedWorkspaces(workspaces, currentGroups) {
         showNotice(`Erro ao excluir: ${error?.message || error}`, "error");
       } finally {
         setLoading(false);
-        button.disabled = false;
+        deleteButton.disabled = false;
       }
     });
+
+    actions.append(restoreButton, deleteButton);
+    article.append(header, renderTabPreview(tabEntries, `saved-${workspace.id}`), sourceMeta, updatedMeta, actions);
+
+    return article;
   });
+
+  savedWorkspacesEl.replaceChildren(...cards);
 }
 
 async function clearAllWorkspaces() {
@@ -323,49 +371,73 @@ function renderSyncStatus(syncStatus) {
 }
 
 function renderTabPreview(tabEntries, sectionId) {
+  const fragment = document.createDocumentFragment();
+
   if (!tabEntries.length) {
-    return `<div class="empty">Sem abas neste grupo.</div>`;
+    fragment.append(createEmptyState("Sem abas neste grupo."));
+    return fragment;
   }
 
   const previewEntries = tabEntries.slice(0, 3);
   const remainingEntries = tabEntries.slice(3);
-  const previewItems = previewEntries.map((tab) => renderTabItem(tab)).join("");
   const detailsId = safeDomId(sectionId);
-  const details = remainingEntries.length > 0
-    ? `
-      <details class="tabs-details" id="${detailsId}">
-        <summary>Mostrar demais abas (${remainingEntries.length})</summary>
-        <ul class="preview">
-          ${remainingEntries.map((tab) => renderTabItem(tab)).join("")}
-        </ul>
-      </details>
-    `
-    : "";
+  const previewList = document.createElement("ul");
+  previewList.className = "preview";
+  previewList.append(...previewEntries.map((tab) => renderTabItem(tab)));
+  fragment.append(previewList);
 
-  return `
-    <ul class="preview">
-      ${previewItems}
-    </ul>
-    ${details}
-  `;
+  if (remainingEntries.length > 0) {
+    const details = document.createElement("details");
+    details.className = "tabs-details";
+    details.id = detailsId;
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Mostrar demais abas (${remainingEntries.length})`;
+
+    const remainingList = document.createElement("ul");
+    remainingList.className = "preview";
+    remainingList.append(...remainingEntries.map((tab) => renderTabItem(tab)));
+
+    details.append(summary, remainingList);
+    fragment.append(details);
+  }
+
+  return fragment;
 }
 
 function renderTabItem(tab) {
   const label = getTabLabel(tab);
   const tooltip = formatTabTooltip(tab);
   const faviconUrl = getRenderableFaviconUrl(tab?.favIconUrl);
-  const favicon = faviconUrl
-    ? `<img class="tab-favicon" src="${escapeAttr(faviconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
-    : `<span class="tab-favicon placeholder" aria-hidden="true">${escapeHtml(getFallbackIconGlyphAscii(tab?.url))}</span>`;
+  const item = document.createElement("li");
+  item.className = "tab-item";
+  item.title = tooltip;
 
-  return `
-    <li class="tab-item" title="${escapeAttr(tooltip)}">
-      <div class="tab-row">
-        ${favicon}
-        <span class="tab-text">${escapeHtml(label)}</span>
-      </div>
-    </li>
-  `;
+  const row = document.createElement("div");
+  row.className = "tab-row";
+
+  let favicon;
+  if (faviconUrl) {
+    favicon = document.createElement("img");
+    favicon.className = "tab-favicon";
+    favicon.src = faviconUrl;
+    favicon.alt = "";
+    favicon.loading = "lazy";
+    favicon.referrerPolicy = "no-referrer";
+  } else {
+    favicon = document.createElement("span");
+    favicon.className = "tab-favicon placeholder";
+    favicon.setAttribute("aria-hidden", "true");
+    favicon.textContent = getFallbackIconGlyphAscii(tab?.url);
+  }
+
+  const text = document.createElement("span");
+  text.className = "tab-text";
+  text.textContent = label;
+
+  row.append(favicon, text);
+  item.append(row);
+  return item;
 }
 
 function getGroupTabEntries(group) {
@@ -543,13 +615,32 @@ function askUpdateConfirmation(payload) {
 
 function renderDiffList(targetEl, tabs, emptyLabel) {
   if (!tabs.length) {
-    targetEl.innerHTML = `<li class="tab-item"><span class="tab-text">${escapeHtml(emptyLabel)}</span></li>`;
+    const item = document.createElement("li");
+    item.className = "tab-item";
+
+    const text = document.createElement("span");
+    text.className = "tab-text";
+    text.textContent = emptyLabel;
+
+    item.append(text);
+    targetEl.replaceChildren(item);
     return;
   }
 
-  targetEl.innerHTML = tabs
-    .map((tab) => `<li class="tab-item" title="${escapeHtml(tab.title)}"><span class="tab-text">${escapeHtml(tab.title)}</span></li>`)
-    .join("");
+  const items = tabs.map((tab) => {
+    const item = document.createElement("li");
+    item.className = "tab-item";
+    item.title = tab.title;
+
+    const text = document.createElement("span");
+    text.className = "tab-text";
+    text.textContent = tab.title;
+
+    item.append(text);
+    return item;
+  });
+
+  targetEl.replaceChildren(...items);
 }
 
 function finishUpdateConfirmation(confirmed) {
@@ -626,15 +717,13 @@ function formatBytes(bytes) {
   return `${(value / 1024).toFixed(1)} KB`;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+function replaceWithEmptyState(targetEl, message) {
+  targetEl.replaceChildren(createEmptyState(message));
 }
 
-function escapeAttr(value) {
-  return escapeHtml(value).replaceAll("\n", "&#10;");
+function createEmptyState(message) {
+  const emptyEl = document.createElement("div");
+  emptyEl.className = "empty";
+  emptyEl.textContent = message;
+  return emptyEl;
 }

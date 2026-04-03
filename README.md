@@ -12,7 +12,7 @@ Este repositório foi preparado para o caso de uso pessoal pedido: sincronizar g
 
 ## Requisitos
 
-- Firefox **141+**
+- Firefox **142+**
 - mesma conta Mozilla conectada nos dispositivos
 - em `Configurações > Sincronização`, a opção **Add-ons** deve estar habilitada
 

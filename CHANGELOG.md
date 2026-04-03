@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 - 2026-04-03
+
+- removido o uso de `innerHTML` no popup, trocando a renderizacao dinamica por criacao segura de elementos DOM
+- ajustado `strict_min_version` para `142.0`, alinhando o manifesto ao suporte de `data_collection_permissions`
+
 ## 0.1.3 - 2026-04-02
 
 - removido JavaScript inline do popup para evitar atrito com CSP/review da AMO
