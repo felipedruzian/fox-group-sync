@@ -2,7 +2,6 @@ const browserApi = globalThis.browser ?? globalThis.chrome;
 
 const LEGACY_STORAGE_KEY = "workspaceGroupSync.workspaces.v1";
 const WORKSPACE_KEY_PREFIX = "workspaceGroupSync.workspace.";
-const DEVICE_PROFILE_KEY = "workspaceGroupSync.deviceProfile.v1";
 const MAX_WORKSPACES = 100;
 const TAB_GROUP_NONE = -1;
 const SYNC_QUOTA_BYTES = 102400;
@@ -115,8 +114,6 @@ async function saveGroup(groupId) {
       favIconUrl: normalizeFavIconUrl(tab.favIconUrl),
     }));
   const tabUrls = tabEntries.map((tab) => tab.url);
-  const sourceDevice = await getCurrentSourceDevice();
-
   if (!tabUrls.length) {
     return { ok: false, error: "Não há abas para salvar neste grupo." };
   }
@@ -138,7 +135,6 @@ async function saveGroup(groupId) {
         tabUrls,
         meta: {
           originalTabCount: tabUrls.length,
-          sourceDevice,
         },
       }
     : {
@@ -152,7 +148,6 @@ async function saveGroup(groupId) {
         tabUrls,
         meta: {
           originalTabCount: tabUrls.length,
-          sourceDevice,
         },
       };
 
@@ -451,15 +446,12 @@ function normalizeWorkspace(workspace) {
 }
 
 function normalizeWorkspaceMeta(meta, defaultTabCount) {
-  const sourceDevice = normalizeSourceDevice(meta?.sourceDevice);
   const originalTabCountRaw = Number(meta?.originalTabCount ?? defaultTabCount ?? 0);
   const originalTabCount = Number.isFinite(originalTabCountRaw) && originalTabCountRaw >= 0
     ? Math.floor(originalTabCountRaw)
     : Number(defaultTabCount || 0);
 
-  return sourceDevice
-    ? { originalTabCount, sourceDevice }
-    : { originalTabCount };
+  return { originalTabCount };
 }
 
 function normalizeWorkspaceTabEntries(workspace) {
@@ -522,112 +514,6 @@ function getWorkspaceLogicalKey(name, color) {
 
 function normalizeWorkspaceName(value) {
   return sanitizeText(value || "Grupo sem nome").toLocaleLowerCase();
-}
-
-async function getCurrentSourceDevice() {
-  const [platformInfo, browserInfo, deviceProfile] = await Promise.all([
-    safeGetPlatformInfo(),
-    safeGetBrowserInfo(),
-    getOrCreateDeviceProfile(),
-  ]);
-
-  const browserLabel = formatBrowserLabel(browserInfo);
-  const osLabel = formatOsLabel(platformInfo?.os);
-  const shortId = String(deviceProfile.id).slice(0, 6);
-
-  return {
-    id: deviceProfile.id,
-    label: `${browserLabel} em ${osLabel} (${shortId})`,
-    browser: browserLabel,
-    os: osLabel,
-    capturedAt: new Date().toISOString(),
-  };
-}
-
-async function getOrCreateDeviceProfile() {
-  try {
-    const stored = await browserApi.storage.local.get(DEVICE_PROFILE_KEY);
-    const existing = normalizeStoredDeviceProfile(stored?.[DEVICE_PROFILE_KEY]);
-    if (existing) return existing;
-  } catch {
-    // Ignore storage.local read failure and fallback to a transient identifier.
-  }
-
-  const created = {
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-
-  try {
-    await browserApi.storage.local.set({ [DEVICE_PROFILE_KEY]: created });
-  } catch {
-    // Ignore storage.local write failure and continue with transient data.
-  }
-
-  return created;
-}
-
-function normalizeStoredDeviceProfile(profile) {
-  const id = sanitizeText(profile?.id || "");
-  if (!id) return null;
-
-  return {
-    id,
-    createdAt: sanitizeText(profile?.createdAt || ""),
-  };
-}
-
-async function safeGetPlatformInfo() {
-  try {
-    if (typeof browserApi?.runtime?.getPlatformInfo !== "function") return null;
-    return await browserApi.runtime.getPlatformInfo();
-  } catch {
-    return null;
-  }
-}
-
-async function safeGetBrowserInfo() {
-  try {
-    if (typeof browserApi?.runtime?.getBrowserInfo !== "function") return null;
-    return await browserApi.runtime.getBrowserInfo();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeSourceDevice(sourceDevice) {
-  const id = sanitizeText(sourceDevice?.id || "");
-  if (!id) return null;
-
-  const browser = sanitizeText(sourceDevice?.browser || "");
-  const os = sanitizeText(sourceDevice?.os || "");
-  const shortId = id.slice(0, 6);
-  const label = sanitizeText(sourceDevice?.label || "") || `${browser || "Firefox"} em ${os || "sistema desconhecido"} (${shortId})`;
-  const capturedAt = sanitizeText(sourceDevice?.capturedAt || "");
-
-  return capturedAt
-    ? { id, label, browser, os, capturedAt }
-    : { id, label, browser, os };
-}
-
-function formatBrowserLabel(browserInfo) {
-  const name = sanitizeText(browserInfo?.name || "Firefox");
-  const version = sanitizeText(browserInfo?.version || "");
-  const majorVersion = version.split(".")[0];
-  return majorVersion ? `${name} ${majorVersion}` : name;
-}
-
-function formatOsLabel(os) {
-  const byCode = {
-    win: "Windows",
-    mac: "macOS",
-    linux: "Linux",
-    android: "Android",
-    cros: "ChromeOS",
-    openbsd: "OpenBSD",
-  };
-  const normalized = sanitizeText(os || "").toLocaleLowerCase();
-  return byCode[normalized] || (normalized ? normalized : "sistema desconhecido");
 }
 
 function getTabUrl(tab) {

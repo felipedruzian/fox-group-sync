@@ -353,8 +353,9 @@ function renderTabPreview(tabEntries, sectionId) {
 function renderTabItem(tab) {
   const label = getTabLabel(tab);
   const tooltip = formatTabTooltip(tab);
-  const favicon = tab?.favIconUrl
-    ? `<img class="tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
+  const faviconUrl = getRenderableFaviconUrl(tab?.favIconUrl);
+  const favicon = faviconUrl
+    ? `<img class="tab-favicon" src="${escapeAttr(faviconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
     : `<span class="tab-favicon placeholder" aria-hidden="true">${escapeHtml(getFallbackIconGlyphAscii(tab?.url))}</span>`;
 
   return `
@@ -418,16 +419,7 @@ function getWorkspaceTabEntries(workspace) {
 }
 
 function formatWorkspaceSource(workspace) {
-  const sourceDeviceLabel = sanitizeText(workspace?.meta?.sourceDevice?.label || "");
-  if (workspace?.inSync) {
-    return sourceDeviceLabel ? `Origem: ${sourceDeviceLabel}` : "Origem: storage.sync";
-  }
-
-  if (sourceDeviceLabel) {
-    return `Origem: ${sourceDeviceLabel} (cache local)`;
-  }
-
-  return "Origem: cache local";
+  return workspace?.inSync ? "Origem: storage.sync" : "Origem: cache local";
 }
 
 function enrichWorkspaceTabEntries(entries, localMetadataByUrl) {
@@ -468,6 +460,17 @@ function getFallbackIconGlyphAscii(url) {
     return host ? host[0].toUpperCase() : "*";
   } catch {
     return "*";
+  }
+}
+
+function getRenderableFaviconUrl(value) {
+  if (typeof value !== "string" || !value) return "";
+
+  try {
+    const url = new URL(value);
+    return ["data:", "blob:", "moz-extension:"].includes(url.protocol) ? value : "";
+  } catch {
+    return "";
   }
 }
 

@@ -5,3 +5,4 @@ Thumbs.db
 *.zip
 .web-ext-artifacts/
 node_modules/
+.codex

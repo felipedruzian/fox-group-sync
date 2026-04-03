@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 - 2026-04-02
+
+- removido JavaScript inline do popup para evitar atrito com CSP/review da AMO
+- bloqueado o render de favicons remotos no popup; quando a URL nao for segura para pagina da extensao, entra fallback local
+- removida a sincronizacao de metadados tecnicos do dispositivo para alinhar o payload real ao consentimento declarado no manifesto
+
 ## 0.1.2 - 2026-03-29
 
 - grupos locais com mesmo nome+cor de um grupo sincronizado agora mostram acao de update

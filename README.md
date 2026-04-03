@@ -72,6 +72,7 @@ Fluxo recomendado:
 
 ## Privacidade e sincronização
 
-- A extensão sincroniza as URLs salvas dos grupos via `storage.sync`.
+- A extensão sincroniza os snapshots dos grupos via `storage.sync`, incluindo URLs e títulos das abas salvas.
 - Por isso, o manifesto declara transmissão de **`browsingActivity`** e **`searchTerms`** no fluxo de consentimento da Mozilla.
+- Metadados técnicos do dispositivo não são sincronizados.
 - Nenhum backend próprio é usado.
